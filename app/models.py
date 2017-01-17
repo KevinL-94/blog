@@ -1,10 +1,12 @@
 # app\models.py
 # -*- coding: UTF-8 -*-
-from flask import current_app
+from flask import current_app, request
 from flask.ext.login import UserMixin, AnonymousUserMixin
 from werkzeug.security import generate_password_hash, check_password_hash   # 计算密码哈希值并核对
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer   # 生成确认令牌
+from datetime import datetime
 from . import db, login_manager
+import hashlib
 
 
 class Permission:
@@ -56,6 +58,12 @@ class User(UserMixin, db.Model):   # 定义数据库模型：users表，继承�
     password_hash = db.Column(db.String(128))
     email = db.Column(db.String(64), unique=True, index=True)
     confirmed = db.Column(db.Boolean, default=False)
+    name = db.Column(db.String(64))
+    location = db.Column(db.String(64))
+    about_me = db.Column(db.Text())
+    member_since = db.Column(db.DateTime(), default=datetime.utcnow)
+    last_seen = db.Column(db.DateTime(), default=datetime.utcnow)
+    avatar_hash = db.Column(db.String(32))
 
     def __init__(self, **kwargs):    # 定义默认角色
         super(User, self).__init__(**kwargs)
@@ -64,6 +72,8 @@ class User(UserMixin, db.Model):   # 定义数据库模型：users表，继承�
                 self.role = Role.query.filter_by(permissions=0xff).first()
             if self.role is None:
                 self.role = Role.query.filter_by(default=True).first()
+            if self.email is not None and self.avatar_hash is None:
+                self.avatar_hash = hashlib.md5(self.email.encode('utf-8')).hexdigest()
 
     @property   # @property装饰器，把password方法变成属性调用
     def password(self):
@@ -126,6 +136,7 @@ class User(UserMixin, db.Model):   # 定义数据库模型：users表，继承�
         if self.query.filter_by(email=new_email) is not None:
             return False
         self.email = new_email
+        self.avatar_hash = hashlib.md5(self.email.encode('utf-8')).hexdigest
         db.session.add(self)
         return True
 
@@ -136,6 +147,18 @@ class User(UserMixin, db.Model):   # 定义数据库模型：users表，继承�
     def is_administrator(self):
         return self.can(Permission.ADMINISTER)
 
+    def ping(self):
+        self.last_seen = datetime.utcnow()
+        db.session.add(self)
+
+    def gravatar(self, size=100, default='identicon', rating='g'):
+        if request.is_secure:
+            url = 'https://secure.gravatar.com/avatar'    # request为https
+        else:
+            url = 'http://www.gravatar.com/avatar'    # request为http
+        hash = self.avatar_hash or hashlib.md5(self.email.encode('utf-8')).hexdigest()
+        return '{url}/{hash}?s={size}&d={default}&r={rating}'.format(
+            url=url, hash=hash, size=size, default=default, rating=rating)
 
     def __repr__(self):
         return '<User %r>' % self.username
