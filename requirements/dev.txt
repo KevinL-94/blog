@@ -1,2 +1,0 @@
--r common.txt
-ForgerPy==0.1

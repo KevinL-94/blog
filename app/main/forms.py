@@ -1,6 +1,5 @@
 # main\forms.py
 from flask.ext.wtf import Form
-from flask_pagedown.fields import PageDownField
 from wtforms import StringField, SubmitField, TextAreaField, BooleanField, SelectField, \
     ValidationError
 from wtforms.validators import Required, Length, Email, Regexp
@@ -45,8 +44,3 @@ class AdminEditProfileForm(Form):
         if field.data != self.user.username and \
             User.query.filter_by(username=field.data).first():
             raise ValidationError('Username already in use.')
-
-
-class PostForm(Form):
-    body = PageDownField("What's on your mind?", validators=[Required()])
-    submit = SubmitField('Submit')

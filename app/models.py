@@ -1,14 +1,12 @@
 # app\models.py
 # -*- coding: UTF-8 -*-
-
 from flask import current_app, request
-from flask_login import UserMixin, AnonymousUserMixin
+from flask.ext.login import UserMixin, AnonymousUserMixin
 from werkzeug.security import generate_password_hash, check_password_hash   # 计算密码哈希值并核对
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer   # 生成确认令牌
 from datetime import datetime
-from markdown import markdown
 from . import db, login_manager
-import hashlib, bleach
+import hashlib
 
 
 class Permission:
@@ -66,7 +64,6 @@ class User(UserMixin, db.Model):   # 定义数据库模型：users表，继承�
     member_since = db.Column(db.DateTime(), default=datetime.utcnow)
     last_seen = db.Column(db.DateTime(), default=datetime.utcnow)
     avatar_hash = db.Column(db.String(32))
-    posts = db.relationship('Post', backref='author', lazy='dynamic')
 
     def __init__(self, **kwargs):    # 定义默认角色
         super(User, self).__init__(**kwargs)
@@ -163,32 +160,8 @@ class User(UserMixin, db.Model):   # 定义数据库模型：users表，继承�
         return '{url}/{hash}?s={size}&d={default}&r={rating}'.format(
             url=url, hash=hash, size=size, default=default, rating=rating)
 
-    @staticmethod
-    def generate_fake(count=100):    # 生成虚拟用户
-        from sqlalchemy.exc import IntegrityError
-        from random import seed
-        import forgery_py
-
-        seed()
-        for i in range(count):
-            u = User(email=forgery_py.internet.email_address(),
-                     username=forgery_py.internet.user_name(True),
-                     password=forgery_py.lorem_ipsum.word(),
-                     confirmed=True,
-                     name=forgery_py.name.full_name(),
-                     location=forgery_py.address.city(),
-                     about_me=forgery_py.lorem_ipsum.sentence(),
-                     member_since=forgery_py.date.date(True))
-            db.session.add(u)
-            try:
-                db.session.commit()
-            except IntegrityError:
-                db.session.rollback()
-
-
     def __repr__(self):
         return '<User %r>' % self.username
-
 
 class AnonymousUser(AnonymousUserMixin):
     def can(self, permissions):
@@ -202,38 +175,3 @@ login_manager.anonymous_user = AnonymousUser
 @login_manager.user_loader    # 加载用户的回调函数
 def load_user(user_id):
     return User.query.get(int(user_id))
-
-
-class Post(db.Model):
-    __tablename__ = 'posts'
-    id = db.Column(db.Integer, primary_key=True)
-    author_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    timestamp = db.Column(db.DateTime, index=True, default=datetime.utcnow)
-    body = db.Column(db.Text)
-    body_html = db.Column(db.Text)
-
-    @staticmethod
-    def generate_fake(count=100):
-        from random import seed, randint
-        import forgery_py
-
-        seed()
-        user_count = User.query.count()
-        for i in range(count):
-            u = User.query.offset(randint(0, user_count - 1)).first()    # offset()过滤器，跳过参数中指定的记录数量
-            p = Post(body=forgery_py.lorem_ipsum.sentence(randint(1, 5)),
-                timestamp=forgery_py.date.date(True),
-                author=u)
-            db.session.add(p)
-            db.session.commit()
-
-    @staticmethod
-    def on_changed_body(target, value, oldvalue, initiator):
-        allowed_tags = ['a', 'abbr', 'acronym', 'b', 'blockquote', 'code',
-                        'em', 'i', 'li', 'ol', 'pre', 'strong', 'ul', 
-                        'h1', 'h2', 'h3', 'p']
-        target.body.html = bleach.linkify(bleach.clean(
-            markdown(value, output_format='html'), 
-            tags=allowed_tags, strip=True))
-
-db.event.listen(Post.body, 'set', Post.on_changed_body)
