@@ -1,6 +1,5 @@
 # app\models.py
 # -*- coding: UTF-8 -*-
-
 from flask import current_app, request
 from flask_login import UserMixin, AnonymousUserMixin
 from werkzeug.security import generate_password_hash, check_password_hash   # 计算密码哈希值并核对
@@ -52,6 +51,14 @@ class Role(db.Model):   # 定义数据库模型：roles表
         return '<Role %r>' % self.name
 
 
+class Follow(db.Model):
+    __tablename__ = 'follows'
+    follower_id = db.Column(db.Integer, db.ForeignKey('users.id'),    # 追随者（粉丝）id
+                            primary_key=True)
+    followed_id = db.Column(db.Integer, db.ForeignKey('users.id'),    # 被关注者id
+                            primary_key=True)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
 class User(UserMixin, db.Model):   # 定义数据库模型：users表，继承自UserMixin，db.Model
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
@@ -66,7 +73,48 @@ class User(UserMixin, db.Model):   # 定义数据库模型：users表，继承�
     member_since = db.Column(db.DateTime(), default=datetime.utcnow)
     last_seen = db.Column(db.DateTime(), default=datetime.utcnow)
     avatar_hash = db.Column(db.String(32))
+
     posts = db.relationship('Post', backref='author', lazy='dynamic')
+    following = db.relationship('Follow',    # 已关注对象
+                               foreign_keys=[Follow.follower_id],    # 表内外键
+                               backref=db.backref('follower', lazy='joined'),
+                               lazy='dynamic',
+                               cascade='all, delete-orphan')
+    followers = db.relationship('Follow',    # 粉丝
+                                foreign_keys=[Follow.followed_id],
+                                backref=db.backref('following', lazy='joined'),
+                                lazy='dynamic',
+                                cascade='all, delete-orphan')
+
+    @staticmethod
+    def generate_fake(count=100):    # 生成虚拟用户
+        from sqlalchemy.exc import IntegrityError
+        from random import seed
+        import forgery_py
+
+        seed()
+        for i in range(count):
+            u = User(email=forgery_py.internet.email_address(),
+                     username=forgery_py.internet.user_name(True),
+                     password=forgery_py.lorem_ipsum.word(),
+                     confirmed=True,
+                     name=forgery_py.name.full_name(),
+                     location=forgery_py.address.city(),
+                     about_me=forgery_py.lorem_ipsum.sentence(),
+                     member_since=forgery_py.date.date(True))
+            db.session.add(u)
+            try:
+                db.session.commit()
+            except IntegrityError:
+                db.session.rollback()
+
+    @staticmethod
+    def add_self_follows():
+        for user in User.query.all():
+            if not user.is_following(user):
+                user.follow(user)
+                db.session.add(user)
+                db.session.commit()
 
     def __init__(self, **kwargs):    # 定义默认角色
         super(User, self).__init__(**kwargs)
@@ -163,28 +211,26 @@ class User(UserMixin, db.Model):   # 定义数据库模型：users表，继承�
         return '{url}/{hash}?s={size}&d={default}&r={rating}'.format(
             url=url, hash=hash, size=size, default=default, rating=rating)
 
-    @staticmethod
-    def generate_fake(count=100):    # 生成虚拟用户
-        from sqlalchemy.exc import IntegrityError
-        from random import seed
-        import forgery_py
+    def is_following(self, user):    # 查询是否已关注，following_id:用户self已关注的id
+        return self.following.filter_by(followed_id=user.id).first() is not None
 
-        seed()
-        for i in range(count):
-            u = User(email=forgery_py.internet.email_address(),
-                     username=forgery_py.internet.user_name(True),
-                     password=forgery_py.lorem_ipsum.word(),
-                     confirmed=True,
-                     name=forgery_py.name.full_name(),
-                     location=forgery_py.address.city(),
-                     about_me=forgery_py.lorem_ipsum.sentence(),
-                     member_since=forgery_py.date.date(True))
-            db.session.add(u)
-            try:
-                db.session.commit()
-            except IntegrityError:
-                db.session.rollback()
+    def is_followed_by(self, user):    # 查询是否已被关注，follower_id:用户self的粉丝id
+        return self.follower.filter_by(follower_id=user.id).first() is not None
 
+    def follow(self, user):
+        if not self.is_following(user):
+            f = Follow(follower=self, following=user)
+            db.session.add(f)
+
+    def unfollow(self, user):
+        f = self.following.filter_by(following_id=user.id).first()
+        if f:
+            db.session.delete(f)
+
+    @property
+    def following_posts(self):
+        return Post.query.join(Follow, Follow.followed_id == Post.author_id) \
+            .filter(Follow.follower_id == self.id)
 
     def __repr__(self):
         return '<User %r>' % self.username
@@ -207,10 +253,10 @@ def load_user(user_id):
 class Post(db.Model):
     __tablename__ = 'posts'
     id = db.Column(db.Integer, primary_key=True)
-    author_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    timestamp = db.Column(db.DateTime, index=True, default=datetime.utcnow)
     body = db.Column(db.Text)
     body_html = db.Column(db.Text)
+    timestamp = db.Column(db.DateTime, index=True, default=datetime.utcnow)
+    author_id = db.Column(db.Integer, db.ForeignKey('users.id'))
 
     @staticmethod
     def generate_fake(count=100):
@@ -220,20 +266,20 @@ class Post(db.Model):
         seed()
         user_count = User.query.count()
         for i in range(count):
-            u = User.query.offset(randint(0, user_count - 1)).first()    # offset()过滤器，跳过参数中指定的记录数量
-            p = Post(body=forgery_py.lorem_ipsum.sentence(randint(1, 5)),
-                timestamp=forgery_py.date.date(True),
-                author=u)
+            u = User.query.offset(randint(0, user_count - 1)).first()
+            p = Post(body=forgery_py.lorem_ipsum.sentences(randint(1, 5)),
+                     timestamp=forgery_py.date.date(True),
+                     author=u)
             db.session.add(p)
             db.session.commit()
 
     @staticmethod
     def on_changed_body(target, value, oldvalue, initiator):
         allowed_tags = ['a', 'abbr', 'acronym', 'b', 'blockquote', 'code',
-                        'em', 'i', 'li', 'ol', 'pre', 'strong', 'ul', 
+                        'em', 'i', 'li', 'ol', 'pre', 'strong', 'ul',
                         'h1', 'h2', 'h3', 'p']
-        target.body.html = bleach.linkify(bleach.clean(
-            markdown(value, output_format='html'), 
+        target.body_html = bleach.linkify(bleach.clean(
+            markdown(value, output_format='html'),
             tags=allowed_tags, strip=True))
 
 db.event.listen(Post.body, 'set', Post.on_changed_body)
