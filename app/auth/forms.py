@@ -5,11 +5,14 @@ from wtforms.validators import Required, Length, Email, Regexp, EqualTo
 from wtforms import ValidationError
 from ..models import User
 
+
 class LoginForm(Form):      # 用户登录表单
     email = StringField('Email', validators=[Required(), Length(1, 64), Email()])
     password = PasswordField('Password', validators=[Required()])
     remember_me = BooleanField('Keep me logged in')     # BooleanField类表示复选框
     submit = SubmitField('Log In')
+
+
 
 class RegistrationForm(Form):       # 用户注册表单
     email = StringField('Email', validators=[Required(), Length(1,64), Email()])
@@ -30,6 +33,7 @@ class RegistrationForm(Form):       # 用户注册表单
         if User.query.filter_by(username=field.data).first():
             raise ValidationError('Username already in use.')
 
+
 class ChangePasswordForm(Form):
     old_password = PasswordField('Old Password', validators=[Required()])
     password = PasswordField('New Password', validators=[Required(),
@@ -37,9 +41,11 @@ class ChangePasswordForm(Form):
     password2 = PasswordField('Confirm New Password', validators=[Required()])
     submit = SubmitField('Update My Password')
 
+
 class PasswordResetRequestForm(Form):
     email = StringField('Your Email', validators=[Required(), Length(1, 64), Email()])
     submit = SubmitField('Reset Password')
+
 
 class PasswordResetForm(Form):
     email = StringField('Your Email', validators=[Required(), Length(1, 64), Email()])
@@ -47,6 +53,7 @@ class PasswordResetForm(Form):
                                                 EqualTo('password2', message='Password must match!')])
     password2 = PasswordField('Confirm New Password', validators=[Required()])
     submit = SubmitField('Reset Password')
+
 
 class ChangeEmailAddressForm(Form):
     email = StringField('New Email', validators=[Required(), Length(1, 64), Email()])
