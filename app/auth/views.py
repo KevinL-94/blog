@@ -1,4 +1,5 @@
 # auth/views.py
+# -*- coding: utf-8 -*-
 from flask import render_template, redirect, request, url_for, flash
 from flask.ext.login import login_required, login_user, logout_user, current_user
 from . import auth

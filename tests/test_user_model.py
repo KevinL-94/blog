@@ -1,4 +1,5 @@
 # test_user_model
+# -*- coding: utf-8 -*-
 import unittest
 from app import create_app, db
 from app.models import User, Role, AnonymousUser, Permission

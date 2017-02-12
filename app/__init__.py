@@ -21,7 +21,7 @@ login_manager.login_view = 'auth.login'
 
 def create_app(config_name):    # 工厂函数
     app = Flask(__name__)   # Flask初始化
-    app.config.from_object(config[config_name]) # 获得配置
+    app.config.from_object(config[config_name]) # config.from_object获得配置
     config[config_name].init_app(app)
 
     bootstrap.init_app(app)
@@ -31,12 +31,13 @@ def create_app(config_name):    # 工厂函数
     login_manager.init_app(app)
     pagedown.init_app(app)
 
-    # 附加路由和自定义的错误页面
-
     from .main import main as main_blueprint    # 将蓝图注册到工厂函数中
     app.register_blueprint(main_blueprint)
 
     from .auth import auth as auth_blueprint
-    app.register_blueprint(auth_blueprint, url_prefix = '/auth')
+    app.register_blueprint(auth_blueprint, url_prefix = '/auth')    # url_prefix：路由前缀（可选参数）
+
+    from .api_1_0 import api as api_1_0_blueprint
+    app.register_blueprint(api_1_0_blueprint, url_prefix = '/api/v1.0')
 
     return app

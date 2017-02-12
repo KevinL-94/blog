@@ -1,11 +1,5 @@
-Dear {{ user.username }},
+亲爱的{{ user.username }}您好！
 
-To confirm your new email address click on the following link:
+请点击一下链接以确认您的新邮箱：
 
 {{ url_for('auth.change_email', token=token, _external=True) }}
-
-Sincerely,
-
-Kevin
-
-Note: replies to this email address are not monitored.

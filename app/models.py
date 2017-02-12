@@ -1,11 +1,12 @@
 # app\models.py
 # -*- coding: UTF-8 -*-
-from flask import current_app, request
+from flask import current_app, request, url_for
 from flask_login import UserMixin, AnonymousUserMixin
 from werkzeug.security import generate_password_hash, check_password_hash   # 计算密码哈希值并核对
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer   # 生成确认令牌
 from datetime import datetime
 from markdown import markdown
+from app.exceptions import ValidationError
 from . import db, login_manager
 import hashlib, bleach
 
@@ -118,6 +119,15 @@ class User(UserMixin, db.Model):   # 定义数据库模型：users表，继承�
                 db.session.add(user)
                 db.session.commit()
 
+    @staticmethod
+    def verify_auth_token(token):
+        s = Serializer(current_app.config['SECRET_KEY'])
+        try:
+            data = s.loads(token)
+        except:
+            return None
+        return User.query.get(data['id'])
+
     def __init__(self, **kwargs):    # 定义默认角色
         super(User, self).__init__(**kwargs)
         if self.role is None:
@@ -132,6 +142,11 @@ class User(UserMixin, db.Model):   # 定义数据库模型：users表，继承�
     def password(self):
         raise AttributeError('password is not a readable attribute')    # self.password为只写属性，不可读
 
+    @property
+    def following_posts(self):
+        return Post.query.join(Follow, Follow.followed_id == Post.author_id) \
+            .filter(Follow.follower_id == self.id)
+
     @password.setter    # @password.setter装饰器，把方法变成属性赋值
     def password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -140,7 +155,7 @@ class User(UserMixin, db.Model):   # 定义数据库模型：users表，继承�
         return check_password_hash(self.password_hash, password)
 
     def generate_confirmation_token(self, expiration=3600):     # 生成确认令牌
-        s = Serializer(current_app.config['SECRET_KEY'], expiration)
+        s = Serializer(current_app.config['SECRET_KEY'], expiration)    # 生成具过期时间的签名
         return s.dumps({'confirm': self.id})    # dumps()为指定数据生成加密签名，再序列化生成令牌字符串
 
     def confirm(self, token):    # 检验令牌，及令牌中的id是否与current_user中的id匹配
@@ -229,10 +244,23 @@ class User(UserMixin, db.Model):   # 定义数据库模型：users表，继承�
         if f:
             db.session.delete(f)
 
-    @property
-    def following_posts(self):
-        return Post.query.join(Follow, Follow.followed_id == Post.author_id) \
-            .filter(Follow.follower_id == self.id)
+    def generate_auth_token(self, expiration):
+        s = Serializer(current_app.config['SECRET_KEY'],
+                       expires_in=expiration)
+        return s.dumps({'id': self.id})
+
+    def to_json(self):
+        json_user = {
+            'url': url_for('api.get_post', id=self.id, _external=True),
+            'username': self.username,
+            'member_since': self.member_since,
+            'last_seen': self.last_seen,
+            'posts': url_for('api.get_user_posts', id=self.id, _external=True),
+            'following_posts': url_for('api.following_posts',
+                                        id=self.id, _external=True),
+            'post_count': self.posts.count()
+        }
+        return json_user
 
     def __repr__(self):
         return '<User %r>' % self.username
@@ -285,6 +313,25 @@ class Post(db.Model):
         target.body_html = bleach.linkify(bleach.clean(
             markdown(value, output_format='html'),
             tags=allowed_tags, strip=True))
+
+    @staticmethod
+    def from_json(json_post):
+        body = json_post.get('body')
+        if body is None or body == '':
+            raise ValidationError('post does not have a body')
+        return Post(body=body)
+
+    def to_json(self):
+        json_post = {
+            'url': url_for('api.get_post', id=self.id, _external=True),
+            'body': self.body,
+            'body_html': self.body_html,
+            'timestamp': self.timestamp,
+            'author': url_for('api.get_user', id=self.author_id, _external=True),
+            'comments': url_for('api.get_post_comments', id=self.id, _external=True),
+            'comment_count': self.comments.count()
+        }
+        return json_post
 
 db.event.listen(Post.body, 'set', Post.on_changed_body)
 
